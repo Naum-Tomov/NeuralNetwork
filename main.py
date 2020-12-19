@@ -1,93 +1,92 @@
-import image
-import numpy
-import tensorflow as tf
-import tensorflow_datasets as tfds
+import numpy as np
+from mlxtend.data import loadlocal_mnist
 
-mnist = tfds.load("MNIST", split='train')
-
-n_train = mnist.train.num_examples  # 55,000
-n_validation = mnist.validation.num_examples  # 5000
-n_test = mnist.test.num_examples  # 10,000
-
-n_input = 784  # input layer (28x28 pixels)
-n_hidden1 = 512  # 1st hidden layer
-n_hidden2 = 256  # 2nd hidden layer
-n_hidden3 = 128  # 3rd hidden layer
-n_output = 10  # output layer (0-9 digits)
-
-# hyperparamaters:
-
-learning_rate = 1e-4  # how much the parameters are adjusted at each step of the process
-n_iterations = 1000  # how many times we go through the learning step
-batch_size = 128  # how many training examples we are using at each step
-dropout = 0.5  # threshold at which we eliminate units at random
+#Importing dataset
+X, y = loadlocal_mnist(images_path='./data/train-images-idx3-ubyte', labels_path='./data/train-labels/idx1-ubyte')
+#Spliting dataset
+num_train = 50000
+num_test = 10000
+X_train = X[:num_train, :]/255
+y_train = np.zeros((num_train, 10))
+y_train[np.arange(0, num_train) ,y[:num_train]] = 1
+X_test = X[num_train:, :]/255
+y_test = np.zeros((num_test, 10))
+y_test[np.arange(0, num_test) ,y[y.size - num_test:]] = 1
 
 
-X = tf.placeholder("float", [None, n_input])
-Y = tf.placeholder("float", [None, n_output])
-keep_prob = tf.placeholder(tf.float32)
-
-# Initializing the weights, assigning them random values to encourage learning via different errors
-#   since we will be tweaking these values to minimize the error function, finding the local minima of
-#   that function to get a well performing DNN
-weights = {
-    'w1': tf.Variable(tf.truncated_normal([n_input, n_hidden1], stddev=0.1)),
-    'w2': tf.Variable(tf.truncated_normal([n_hidden1, n_hidden2], stddev=0.1)),
-    'w3': tf.Variable(tf.truncated_normal([n_hidden2, n_hidden3], stddev=0.1)),
-    'out': tf.Variable(tf.truncated_normal([n_hidden3, n_output], stddev=0.1)),
-}
-
-# Initialize the biases
-biases = {
-    'b1': tf.Variable(tf.constant(0.1, shape=[n_hidden1])),
-    'b2': tf.Variable(tf.constant(0.1, shape=[n_hidden2])),
-    'b3': tf.Variable(tf.constant(0.1, shape=[n_hidden3])),
-    'out': tf.Variable(tf.constant(0.1, shape=[n_output]))
-}
-
-# Set up the layers of the network
-layer_1 = tf.add(tf.matmul(X, weights['w1']), biases['b1'])
-layer_2 = tf.add(tf.matmul(layer_1, weights['w2']), biases['b2'])
-layer_3 = tf.add(tf.matmul(layer_2, weights['w3']), biases['b3'])
-layer_drop = tf.nn.dropout(layer_3, keep_prob)
-output_layer = tf.matmul(layer_3, weights['out']) + biases['out']
-
-# Adam optimizer for gradient descent optimization
-cross_entropy = tf.reduce_mean(
-    tf.nn.softmax_cross_entropy_with_logits(
-        labels=Y, logits=output_layer
-        ))
-train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
-
-correct_pred = tf.equal(tf.argmax(output_layer, 1), tf.argmax(Y, 1))
-accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
-
-init = tf.global_variables_initializer()
-sess = tf.Session()
-sess.run(init)
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
 
 
-# train on mini batches
-for i in range(n_iterations):
-    batch_x, batch_y = mnist.train.next_batch(batch_size)
-    sess.run(train_step, feed_dict={
-        X: batch_x, Y: batch_y, keep_prob: dropout
-        })
+def sigmoid_derivative(x):
+    return x * (1 - x)
 
-    # print loss and accuracy (per minibatch)
-    if i % 100 == 0:
-        minibatch_loss, minibatch_accuracy = sess.run(
-            [cross_entropy, accuracy],
-            feed_dict={X: batch_x, Y: batch_y, keep_prob: 1.0}
-            )
-        print(
-            "Iteration",
-            str(i),
-            "\t| Loss =",
-            str(minibatch_loss),
-            "\t| Accuracy =",
-            str(minibatch_accuracy)
-            )
 
-test_accuracy = sess.run(accuracy, feed_dict={X: mnist.test.images, Y: mnist.test.labels, keep_prob: 1.0})
-print("\nAccuracy on test set:", test_accuracy)
+def loss(predicted_output, desired_output):
+    return 1 / 2 * (desired_output - predicted_output) ** 2
+
+
+class NeuralNetwork():
+    def __init__(self, inputLayerNeuronsNumber, hiddenLayerNeuronsNumber, outputLayerNeuronsNumber):
+        self.inputLayerNeuronsNumber = inputLayerNeuronsNumber
+        self.hiddenLayerNeuronsNumber = hiddenLayerNeuronsNumber
+        self.outputLayerNeuronsNumber = outputLayerNeuronsNumber
+        self.learning_rate = 0.1
+        # He initialization
+        self.hidden_weights = np.random.randn(hiddenLayerNeuronsNumber, inputLayerNeuronsNumber) * np.sqrt(
+            2 / inputLayerNeuronsNumber)
+        self.hidden_bias = np.zeros([hiddenLayerNeuronsNumber, 1])
+        self.output_weights = np.random.randn(outputLayerNeuronsNumber, hiddenLayerNeuronsNumber)
+        self.output_bias = np.zeros([outputLayerNeuronsNumber, 1])
+        self.loss = []
+
+    def train(self, inputs, desired_output):
+        hidden_layer_in = np.dot(self.hidden_weights, inputs) + self.hidden_bias
+        hidden_layer_out = sigmoid(hidden_layer_in)
+
+        output_layer_in = np.dot(self.output_weights, hidden_layer_out) + self.output_bias
+        predicted_output = sigmoid(output_layer_in)
+
+        error = desired_output - predicted_output
+        d_predicted_output = error * sigmoid_derivative(predicted_output)
+
+        error_hidden_layer = d_predicted_output.T.dot(self.output_weights)
+        d_hidden_layer = error_hidden_layer.T * sigmoid_derivative(hidden_layer_out)
+
+        self.output_weights += hidden_layer_out.dot(d_predicted_output.T).T * self.learning_rate
+        self.output_bias += np.sum(d_predicted_output, axis=0, keepdims=True) * self.learning_rate
+
+        self.hidden_weights += inputs.dot(d_hidden_layer.T).T * self.learning_rate
+        self.hidden_bias += np.sum(d_hidden_layer, axis=0, keepdims=True) * self.learning_rate
+        self.loss.append(loss(predicted_output, desired_output))
+
+    def predict(self, inputs):
+        hidden_layer_in = np.dot(self.hidden_weights, inputs) + self.hidden_bias
+        hidden_layer_out = sigmoid(hidden_layer_in)
+        output_layer_in = np.dot(self.output_weights, hidden_layer_out) + self.output_bias
+        predicted_output = sigmoid(output_layer_in)
+        return predicted_output
+
+
+nn=NeuralNetwork(784,350,10)
+
+for i in range(X_train.shape[0]):
+    inputs = np.array(X_train[i, :].reshape(-1,1))
+    desired_output = np.array(y_train[i, :].reshape(-1,1))
+    nn.train(inputs, desired_output)
+
+prediction_list = []
+for i in range(X_test.shape[0]):
+    inputs = np.array(X_test[i].reshape(-1, 1))
+    prediction_list.append(nn.predict(inputs))
+
+correct_counter = 0
+for i in range(len(prediction_list)):
+    out_index = np.where(prediction_list[i] == np.amax(prediction_list[i]))[0][0]
+
+    if y_test[i][out_index] == 1:
+        correct_counter += 1
+
+accuracy = correct_counter / num_test
+
+print("Accuracy is : ", accuracy * 100, " %")
